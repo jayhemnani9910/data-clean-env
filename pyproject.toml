@@ -1,0 +1,26 @@
+[build-system]
+requires = ["setuptools>=45", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "openenv-data_clean_env"
+version = "0.1.0"
+description = "Data Cleaning environment for OpenEnv — tabular data quality tasks for RL agents"
+requires-python = ">=3.10"
+dependencies = [
+    "openenv-core[core]>=0.2.2",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.0.0",
+]
+
+[project.scripts]
+server = "data_clean_env.server.app:main"
+
+[tool.setuptools]
+include-package-data = true
+packages = ["data_clean_env", "data_clean_env.server", "data_clean_env.tasks"]
+package-dir = { "data_clean_env" = ".", "data_clean_env.server" = "server", "data_clean_env.tasks" = "tasks" }
