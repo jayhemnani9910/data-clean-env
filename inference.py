@@ -6,6 +6,7 @@ MANDATORY ENV VARS:
     MODEL_NAME     The model identifier (default: Qwen/Qwen2.5-72B-Instruct)
     HF_TOKEN       Hugging Face API key (required)
     IMAGE_NAME     Docker image name for the environment (if using from_docker_image)
+    ENV_BASE_URL   Base URL of the environment server (default: http://localhost:7860)
 
 STDOUT FORMAT:
     [START] task=<task_name> env=<benchmark> model=<model_name>

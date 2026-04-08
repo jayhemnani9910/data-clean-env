@@ -16,33 +16,36 @@ class DataCleanEnv(EnvClient[DataCleanAction, DataCleanObservation, State]):
     """
     Client for the Data Cleaning Environment.
 
-    Example:
-        >>> from data_clean_env import DataCleanEnv, DataCleanAction
-        >>>
-        >>> env = DataCleanEnv(base_url="http://localhost:7860")
-        >>> result = env.reset(task_name="fix_types")
-        >>> print(result.observation.task_description)
-        >>>
-        >>> result = env.step(DataCleanAction(
-        ...     action_type="replace_value",
-        ...     column="age",
-        ...     old_value="thirty-five",
-        ...     new_value="35"
-        ... ))
-        >>> print(f"Score: {result.observation.score}")
-        >>> env.close()
+    Example::
 
-    Example with Docker:
-        >>> client = DataCleanEnv.from_docker_image("data-clean-env:latest")
-        >>> try:
-        ...     result = client.reset(task_name="fix_types")
-        ...     result = client.step(DataCleanAction(
-        ...         action_type="convert_type",
-        ...         column="id",
-        ...         target_type="int"
-        ...     ))
-        ... finally:
-        ...     client.close()
+        async def example():
+            env = DataCleanEnv(base_url="http://localhost:7860")
+            await env.connect()
+            result = await env.reset(task_name="fix_types")
+            print(result.observation.task_description)
+
+            result = await env.step(DataCleanAction(
+                action_type="replace_value",
+                column="age",
+                old_value="thirty-five",
+                new_value="35",
+            ))
+            print(f"Score: {result.observation.score}")
+            await env.close()
+
+    Example with Docker::
+
+        async def docker_example():
+            client = await DataCleanEnv.from_docker_image("data-clean-env:latest")
+            try:
+                result = await client.reset(task_name="fix_types")
+                result = await client.step(DataCleanAction(
+                    action_type="convert_type",
+                    column="id",
+                    target_type="int",
+                ))
+            finally:
+                await client.close()
     """
 
     def _step_payload(self, action: DataCleanAction) -> Dict:
