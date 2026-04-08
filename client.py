@@ -50,24 +50,7 @@ class DataCleanEnv(EnvClient[DataCleanAction, DataCleanObservation, State]):
 
     def _step_payload(self, action: DataCleanAction) -> Dict:
         """Convert DataCleanAction to JSON payload."""
-        payload = {"action_type": action.action_type}
-        if action.column is not None:
-            payload["column"] = action.column
-        if action.value is not None:
-            payload["value"] = action.value
-        if action.target_type is not None:
-            payload["target_type"] = action.target_type
-        if action.old_value is not None:
-            payload["old_value"] = action.old_value
-        if action.new_value is not None:
-            payload["new_value"] = action.new_value
-        if action.row_indices is not None:
-            payload["row_indices"] = action.row_indices
-        if action.subset_columns is not None:
-            payload["subset_columns"] = action.subset_columns
-        if action.method is not None:
-            payload["method"] = action.method
-        return payload
+        return action.model_dump(exclude_none=True, exclude={"metadata"})
 
     def _parse_result(self, payload: Dict) -> StepResult[DataCleanObservation]:
         """Parse server response into StepResult[DataCleanObservation]."""
