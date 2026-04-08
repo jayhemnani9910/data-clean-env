@@ -12,6 +12,12 @@ Usage:
     uvicorn server.app:app --host 0.0.0.0 --port 7860
 """
 
+import os
+import sys
+
+# Ensure repo root is importable when running as a direct script
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 try:
     from openenv.core.env_server.http_server import create_app
 except Exception as e:
@@ -24,7 +30,10 @@ try:
 except ImportError:
     from ..models import DataCleanAction, DataCleanObservation
 
-from .data_clean_environment import DataCleanEnvironment
+try:
+    from .data_clean_environment import DataCleanEnvironment
+except ImportError:
+    from data_clean_environment import DataCleanEnvironment
 
 app = create_app(
     DataCleanEnvironment,

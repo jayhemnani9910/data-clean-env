@@ -36,8 +36,6 @@ except ImportError:
 
 IMAGE_NAME = os.getenv("IMAGE_NAME")
 API_KEY = os.getenv("HF_TOKEN")
-if API_KEY is None:
-    raise ValueError("HF_TOKEN environment variable is required")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
 ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
@@ -248,6 +246,8 @@ async def run_task(client: OpenAI, env: DataCleanEnv, task_name: str) -> float:
 
 
 async def main() -> None:
+    if not API_KEY:
+        raise ValueError("HF_TOKEN environment variable is required")
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
     if IMAGE_NAME:
