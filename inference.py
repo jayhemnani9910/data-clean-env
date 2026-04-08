@@ -18,7 +18,7 @@ import json
 import os
 import textwrap
 import time
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 from openai import OpenAI
 
@@ -28,20 +28,24 @@ except ImportError:
     from client import DataCleanEnv
     from models import DataCleanAction
 
+try:
+    from data_clean_env.tasks.task_data import list_tasks, TASKS as TASK_CONFIGS
+except ImportError:
+    from tasks.task_data import list_tasks, TASKS as TASK_CONFIGS
+
 IMAGE_NAME = os.getenv("IMAGE_NAME")
 API_KEY = os.getenv("HF_TOKEN")
 if API_KEY is None:
     raise ValueError("HF_TOKEN environment variable is required")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
 BENCHMARK = "data_clean_env"
 
-TASKS = ["fix_types", "handle_missing", "full_pipeline", "outlier_cleanup"]
-MAX_STEPS_PER_TASK = {"fix_types": 15, "handle_missing": 20, "full_pipeline": 25, "outlier_cleanup": 20}
 TEMPERATURE = 0.3
 MAX_TOKENS = 800
 
-FALLBACK_ACTIONS = {
+FALLBACK_ACTIONS: Dict[str, dict] = {
     "fix_types": {"action_type": "convert_type", "column": "id", "target_type": "int"},
     "handle_missing": {"action_type": "remove_duplicates", "subset_columns": ["product_id"]},
     "full_pipeline": {"action_type": "remove_duplicates", "subset_columns": ["order_id"]},
@@ -49,7 +53,7 @@ FALLBACK_ACTIONS = {
 }
 
 
-# ─── Logging ────────────────────────────────────────────────────────────────
+# --- Logging ----------------------------------------------------------------
 
 def log_start(task: str, env: str, model: str) -> None:
     print(f"[START] task={task} env={env} model={model}", flush=True)
@@ -72,7 +76,7 @@ def log_end(success: bool, steps: int, score: float, rewards: List[float]) -> No
     )
 
 
-# ─── LLM Agent ──────────────────────────────────────────────────────────────
+# --- LLM Agent --------------------------------------------------------------
 
 SYSTEM_PROMPT = textwrap.dedent("""\
 You are a data cleaning agent. You receive a dirty dataset and must fix data quality issues.
@@ -110,7 +114,6 @@ def build_user_prompt(
     step: int,
     history: List[str],
 ) -> str:
-    # Show all rows
     data_preview = json.dumps(data, indent=2, default=str)
     col_info_str = json.dumps(column_info, indent=2, default=str)
     history_str = "\n".join(history[-5:]) if history else "None"
@@ -168,11 +171,11 @@ def get_action_from_llm(client: OpenAI, user_prompt: str, task_name: str = "fix_
     return FALLBACK_ACTIONS.get(task_name, {"action_type": "convert_type", "column": "id", "target_type": "int"})
 
 
-# ─── Main Loop ──────────────────────────────────────────────────────────────
+# --- Main Loop --------------------------------------------------------------
 
 async def run_task(client: OpenAI, env: DataCleanEnv, task_name: str) -> float:
     """Run a single task and return the final score."""
-    max_steps = MAX_STEPS_PER_TASK.get(task_name, 15)
+    max_steps = TASK_CONFIGS[task_name]["max_steps"]
     rewards: List[float] = []
     steps_taken = 0
     score = 0.0
@@ -181,7 +184,7 @@ async def run_task(client: OpenAI, env: DataCleanEnv, task_name: str) -> float:
     log_start(task=task_name, env=BENCHMARK, model=MODEL_NAME)
 
     try:
-        result = env.reset(task_name=task_name)
+        result = await env.reset(task_name=task_name)
         obs = result.observation
 
         history: List[str] = []
@@ -206,7 +209,6 @@ async def run_task(client: OpenAI, env: DataCleanEnv, task_name: str) -> float:
             action_dict = get_action_from_llm(client, user_prompt, task_name=task_name)
             action_str = json.dumps(action_dict, default=str)
 
-            # Build action
             try:
                 action = DataCleanAction(**action_dict)
             except Exception as e:
@@ -215,7 +217,7 @@ async def run_task(client: OpenAI, env: DataCleanEnv, task_name: str) -> float:
                 action = DataCleanAction(**action_dict)
                 action_str = json.dumps(action_dict, default=str)
 
-            result = env.step(action)
+            result = await env.step(action)
             obs = result.observation
 
             reward = result.reward or 0.0
@@ -233,7 +235,7 @@ async def run_task(client: OpenAI, env: DataCleanEnv, task_name: str) -> float:
             if done:
                 break
 
-        success = score >= 0.5  # At least half the issues fixed
+        success = score >= 0.5
 
     except Exception as exc:
         print(f"[DEBUG] Task error: {exc}", flush=True)
@@ -247,14 +249,18 @@ async def run_task(client: OpenAI, env: DataCleanEnv, task_name: str) -> float:
 async def main() -> None:
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-    env = DataCleanEnv.from_docker_image(IMAGE_NAME)
+    if IMAGE_NAME:
+        env = await DataCleanEnv.from_docker_image(IMAGE_NAME)
+    else:
+        env = DataCleanEnv(base_url=ENV_BASE_URL)
+        await env.connect()
 
     try:
-        for task_name in TASKS:
+        for task_name in list_tasks():
             await run_task(client, env, task_name)
     finally:
         try:
-            env.close()
+            await env.close()
         except Exception as e:
             print(f"[DEBUG] env.close() error: {e}", flush=True)
 
