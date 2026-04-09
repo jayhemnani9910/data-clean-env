@@ -421,7 +421,9 @@ def get_task(task_name: str) -> Dict[str, Any]:
 
 
 def grade_task(task_name: str, current_data: List[Dict[str, Any]]) -> float:
-    """Grade current data state for a task. Returns score in [0, 1]."""
+    """Grade current data state for a task. Returns score in (0, 1)."""
     if task_name not in TASKS:
         raise ValueError(f"Unknown task '{task_name}'. Available: {list_tasks()}")
-    return TASKS[task_name]["grader"](current_data)
+    raw = TASKS[task_name]["grader"](current_data)
+    # Evaluator requires scores strictly between 0 and 1 (exclusive)
+    return max(0.01, min(0.99, raw))
