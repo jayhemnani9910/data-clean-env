@@ -1,6 +1,6 @@
 FROM python:3.11-slim
 
-ENV API_PORT=7860
+ENV API_PORT=8000
 
 WORKDIR /app
 
@@ -19,9 +19,9 @@ RUN pip install --no-cache-dir --upgrade pip && \
 
 COPY . .
 
-EXPOSE 7860
+EXPOSE 8000
 
 HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:7860/health')" || exit 1
+    CMD python -c "import requests; requests.get('http://localhost:8000/health')" || exit 1
 
-CMD ["uvicorn", "server.app:app", "--host", "0.0.0.0", "--port", "7860"]
+CMD ["sh", "-c", "uvicorn server.app:app --host 0.0.0.0 --port ${API_PORT}"]

@@ -38,7 +38,7 @@ IMAGE_NAME = os.getenv("IMAGE_NAME")
 API_KEY = os.getenv("HF_TOKEN")
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
 MODEL_NAME = os.getenv("MODEL_NAME", "Qwen/Qwen2.5-72B-Instruct")
-ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:7860")
+ENV_BASE_URL = os.getenv("ENV_BASE_URL", "http://localhost:8000")
 BENCHMARK = "data_clean_env"
 
 TEMPERATURE = 0.3
@@ -250,11 +250,15 @@ async def main() -> None:
         raise ValueError("HF_TOKEN environment variable is required")
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
 
-    if IMAGE_NAME:
-        env = await DataCleanEnv.from_docker_image(IMAGE_NAME)
-    else:
-        env = DataCleanEnv(base_url=ENV_BASE_URL)
-        await env.connect()
+    try:
+        if IMAGE_NAME:
+            env = await DataCleanEnv.from_docker_image(IMAGE_NAME)
+        else:
+            env = DataCleanEnv(base_url=ENV_BASE_URL)
+            await env.connect()
+    except Exception as e:
+        print(f"[ERROR] Failed to connect to environment: {e}", flush=True)
+        raise
 
     try:
         for task_name in list_tasks():
