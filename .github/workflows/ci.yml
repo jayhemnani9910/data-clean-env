@@ -7,12 +7,19 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        # Tests need the checkout folder to be a valid package name (the repo root has __init__.py).
+        working-directory: data_clean_env
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: data_clean_env
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
           cache: pip
+          cache-dependency-path: data_clean_env/requirements.txt
       - name: Install
         run: pip install -r requirements.txt pytest ruff==0.17.4
       - name: Lint
