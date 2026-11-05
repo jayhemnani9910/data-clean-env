@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+      - name: Install
+        run: pip install -r requirements.txt pytest ruff==0.17.4
+      - name: Lint
+        run: ruff check --isolated --select E4,E7,E9,F .
+      - name: Test
+        run: python -m pytest -q
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t data-clean-env .
+      - name: Run scripted policy against the container
+        run: |
+          docker run -d --name env -p 8000:8000 data-clean-env
+          for i in $(seq 30); do curl -sf localhost:8000/health && break; sleep 1; done
+          docker run --rm --network host -v "$PWD:/src:ro" -w /src data-clean-env \
+            python examples/scripted_policy.py http://localhost:8000 | tee run.txt
+          test "$(grep -c 'checks pass' run.txt)" -eq 4
+          grep 'checks pass' run.txt | awk '{split($1, n, "/"); if (n[1] != n[2]) exit 1}'
