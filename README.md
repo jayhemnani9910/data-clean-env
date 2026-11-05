@@ -114,7 +114,7 @@ python inference.py
 ## Local development
 
 ```bash
-git clone https://github.com/jayhemnani9910/data-clean-env.git && cd data-clean-env
+git clone https://github.com/jayhemnani9910/data-clean-env.git data_clean_env && cd data_clean_env   # tests fail if the folder name has dashes
 python3 -m venv .venv && . .venv/bin/activate
 pip install -r requirements.txt pytest
 uvicorn server.app:app --port 8000
