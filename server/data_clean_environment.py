@@ -21,9 +21,9 @@ except ImportError:
     from ..models import DataCleanAction, DataCleanObservation
 
 try:
-    from tasks.task_data import DEFAULT_TASK, get_task, grade_task, list_tasks
+    from tasks.task_data import DEFAULT_TASK, get_task, grade_task
 except ImportError:
-    from ..tasks.task_data import DEFAULT_TASK, get_task, grade_task, list_tasks
+    from ..tasks.task_data import DEFAULT_TASK, get_task, grade_task
 
 logger = logging.getLogger(__name__)
 
