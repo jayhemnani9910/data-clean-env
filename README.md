@@ -4,148 +4,138 @@ emoji: 🧹
 colorFrom: blue
 colorTo: purple
 sdk: docker
-app_port: 7860
+app_port: 8000
 ---
 
-# DataCleanEnv — Data Cleaning RL Environment
+# DataCleanEnv
 
-An OpenEnv-compliant reinforcement learning environment where an AI agent learns to clean messy tabular data through a sequence of structured cleaning actions.
+![A scripted policy solving all four tasks against the Docker container](docs/demo.gif)
 
-## Overview
+An OpenEnv environment where AI agents learn to clean messy tables, one action at a time.
 
-Real-world data is messy. This environment simulates common data quality issues — type errors, missing values, duplicates, inconsistent formatting — that data engineers fix daily. An AI agent must learn to identify and fix these issues efficiently.
+```bash
+docker build -t data-clean-env https://github.com/jayhemnani9910/data-clean-env.git && docker run --rm -p 8000:8000 data-clean-env
+```
+
+[![CI](https://github.com/jayhemnani9910/data-clean-env/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/jayhemnani9910/data-clean-env/actions/workflows/ci.yml)
+
+I built this for the Meta OpenEnv hackathon. Each episode hands the agent a small dirty table: numbers stored as words, mixed date formats, nulls, duplicate rows, bad casing, outliers. The agent fixes it with typed cleaning actions and gets rewarded for every grader check that starts passing.
+
+## Try it
+
+With the server from the line above running, solve all four tasks with a fixed list of actions. No model, no API key:
+
+```bash
+docker run --rm --network host data-clean-env python examples/scripted_policy.py
+```
+
+```
+fix_types: 5 rows, score 0.01
+  replace_value column=age old_value=thirty-five new_value=35        reward +0.10  score 0.11
+  replace_value column=salary old_value=ninety thousand new_value=90000 reward +0.11  score 0.22
+  convert_type column=id target_type=int                             reward +0.11  score 0.33
+  convert_type column=age target_type=int                            reward +0.11  score 0.44
+  convert_type column=salary target_type=int                         reward +0.11  score 0.56
+  parse_date column=hire_date                                        reward +0.43  score 0.99
+  9/9 checks pass
+...
+```
+
+From your own Python code, use the client. It talks to the server over a WebSocket, so the episode keeps its state between steps:
+
+```python
+import asyncio
+from client import DataCleanEnv
+from models import DataCleanAction
+
+async def main():
+    env = DataCleanEnv(base_url="http://localhost:8000")
+    await env.connect()
+    result = await env.reset(task_name="fix_types")
+    result = await env.step(DataCleanAction(action_type="convert_type", column="id", target_type="int"))
+    print(result.observation.score, result.observation.last_action_result)
+    await env.close()
+
+asyncio.run(main())
+```
+
+Run that from a clone of this repo. The plain HTTP `/reset` and `/step` endpoints each build a fresh environment, so a `/step` after a `/reset` over HTTP answers "call reset() first". Use the client or `/ws` for whole episodes.
+
+## How it works
+
+`server/app.py` wraps `DataCleanEnvironment` with OpenEnv's `create_app`, which serves `/reset`, `/step`, `/state`, `/health`, `/schema` and `/ws` (up to 5 concurrent sessions).
+
+On `reset`, the environment deep-copies the task's dirty table. On `step`, it applies one action to the rows, reruns the task's grader and returns the new table, per-column info (types, null count, unique count) and a reward.
+
+The grader is a list of checks, such as "every `age` is an int" or "Bob Jones is 35". The score is the fraction that pass, clamped to 0.01..0.99 because the hackathon evaluator wanted scores strictly between 0 and 1. The reward for a step is the new score minus the old one, so an action that breaks the data gets a negative reward.
+
+An episode ends when the score reaches 1.0 or the task's step limit runs out. With the clamp, the score tops out at 0.99, so in practice episodes run to the step limit.
 
 ## Tasks
 
-| Task | Difficulty | Rows | Issues | Description |
-|------|-----------|------|--------|-------------|
-| `fix_types` | Easy | 5 | 9 | Fix type casting errors in employee records |
-| `handle_missing` | Medium | 10 | 6 | Handle nulls, duplicates, inconsistent casing in product inventory |
-| `full_pipeline` | Hard | 15 | 12 | All issues combined in customer order data |
-| `outlier_cleanup` | Medium-Hard | 10 | 10 | Fix outliers, inconsistent casing, and data anomalies in sales data |
+The tables are small and made up by hand in `tasks/task_data.py`. Names and emails like `john@email.com` are placeholders.
 
-## Action Space
+| Task | Rows | Checks | Max steps | What's wrong |
+|------|------|--------|-----------|--------------|
+| `fix_types` | 5 | 9 | 15 | Employee records: ids like `"1.0"`, `"thirty-five"`, `"ninety thousand"`, three date formats |
+| `handle_missing` | 10 | 6 | 20 | Product inventory: null prices and stock, empty descriptions, two duplicate rows, `electronics`/`ELECTRONICS` |
+| `full_pipeline` | 15 | 12 | 25 | Customer orders: everything above plus a negative amount to drop and mixed-case emails and statuses |
+| `outlier_cleanup` | 10 | 10 | 20 | Sales: padded product names, a monitor priced 50000.00, a negative price, a quantity of 100000, mixed-case currency and region |
 
-| Action Type | Required Fields | Description |
-|-------------|----------------|-------------|
-| `replace_value` | column, old_value, new_value | Find and replace specific values |
-| `convert_type` | column, target_type | Convert column to int/float/str |
-| `fill_missing` | column, value | Fill None/empty values |
-| `remove_duplicates` | subset_columns | Remove duplicate rows |
-| `drop_rows` | row_indices | Drop rows by index |
-| `standardize` | column, method | Apply lowercase/uppercase/trim/title_case |
-| `parse_date` | column | Convert mixed date formats to YYYY-MM-DD |
+Each task's description tells the agent what is wrong and gives hints.
 
-## Observation Space
+## Actions
 
-Each observation includes:
-- **task_description**: What needs to be cleaned
-- **current_data**: Current data rows as list of dicts
-- **column_info**: Per-column metadata (dtypes, null counts, unique counts)
-- **row_count**: Number of rows
-- **score**: Current quality score [0.0–1.0]
-- **issues_fixed / total_issues**: Progress tracking
-- **last_action_result**: Feedback from the last action
+| `action_type` | Fields | What it does |
+|---------------|--------|--------------|
+| `replace_value` | `column`, `old_value`, `new_value` | Replace exact matches (compared as strings; the new value is parsed to int or float when it can be) |
+| `convert_type` | `column`, `target_type` (`int`, `float`, `str`) | Convert a column, reporting values that failed |
+| `fill_missing` | `column`, `value` | Fill `None` and empty strings |
+| `remove_duplicates` | `subset_columns` (optional) | Keep the first row for each key |
+| `drop_rows` | `row_indices` | Drop rows by current index |
+| `standardize` | `column`, `method` (`lowercase`, `uppercase`, `trim`, `title_case`) | Change string formatting |
+| `parse_date` | `column` | Turn `2023/01/15`, `01-15-2024`, `01/20/2024` and similar into `YYYY-MM-DD` |
 
-## Reward Function
+## Observation
 
-- Each check passed = `1/total_checks` of the score
-- Reward per step = `new_score - old_score` (positive for fixes, negative for breaking data)
-- Episode ends when score = 1.0 or max steps reached
+`task_name`, `task_description` (on reset only), `current_data` (list of row dicts), `column_info`, `row_count`, `total_issues`, `issues_fixed`, `score`, `last_action_result`, `reward`, `done`.
 
-## Example Episode Trace
+## LLM baseline
 
-```
-POST /reset {"task_name": "fix_types"}
-← score=0.11, issues_fixed=1/9
-
-POST /step {"action_type": "replace_value", "column": "age", "old_value": "thirty-five", "new_value": "35"}
-← reward=0.00, score=0.11, "Replaced 1 occurrences..."
-
-POST /step {"action_type": "replace_value", "column": "salary", "old_value": "ninety thousand", "new_value": "90000"}
-← reward=0.00, score=0.11, "Replaced 1 occurrences..."
-
-POST /step {"action_type": "convert_type", "column": "id", "target_type": "int"}
-← reward=0.11, score=0.22, "Converted 5 values..."
-
-POST /step {"action_type": "convert_type", "column": "age", "target_type": "int"}
-← reward=0.22, score=0.44, "Converted 5 values..."
-
-POST /step {"action_type": "convert_type", "column": "salary", "target_type": "int"}
-← reward=0.22, score=0.67, "Converted 5 values..."
-
-POST /step {"action_type": "parse_date", "column": "hire_date"}
-← reward=0.33, score=1.00, done=true
-```
-
-## Setup
-
-### Docker (Recommended)
+`inference.py` runs an OpenAI-compatible chat model through all four tasks and logs `[START]`, `[STEP]` and `[END]` lines in the hackathon's format. It needs a Hugging Face token. I have not rerun it for this README. Copy `.env.example` for the variables it reads.
 
 ```bash
-cd data_clean_env
-docker build -t data-clean-env:latest .
-docker run --rm -p 7860:7860 data-clean-env:latest
-curl -X POST http://localhost:7860/reset -H "Content-Type: application/json" -d '{}'
-```
-
-### Local Development
-
-```bash
-cd data_clean_env
-python3 -m venv venv
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn server.app:app --host 0.0.0.0 --port 7860
-```
-
-## Running Inference
-
-```bash
-export HF_TOKEN="your-hf-token"
-export API_BASE_URL="https://router.huggingface.co/v1"
-export MODEL_NAME="Qwen/Qwen2.5-72B-Instruct"
-export IMAGE_NAME="data-clean-env:latest"
+export HF_TOKEN=...            # required
+export MODEL_NAME=Qwen/Qwen2.5-72B-Instruct
+export IMAGE_NAME=data-clean-env  # or leave unset and set ENV_BASE_URL
 python inference.py
 ```
 
-## API Endpoints
+## Local development
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| POST | `/reset` | Reset environment with task_name parameter |
-| POST | `/step` | Execute a cleaning action |
-| GET | `/state` | Get current episode state |
-| GET | `/health` | Health check |
-
-## Baseline Scores
-
-| Task | Baseline Score | Steps Used |
-|------|---------------|------------|
-| fix_types | ~0.78 | 8 |
-| handle_missing | ~0.83 | 6 |
-| full_pipeline | ~0.58 | 15 |
-| outlier_cleanup | ~0.60 | 12 |
-
-## Project Structure
-
-```
-data_clean_env/
-├── server/
-│   ├── app.py                      # FastAPI server
-│   └── data_clean_environment.py   # Environment implementation
-├── tasks/
-│   └── task_data.py                # Task data and graders
-├── models.py                       # Pydantic Action/Observation models
-├── client.py                       # OpenEnv client
-├── inference.py                    # Baseline inference script
-├── openenv.yaml                    # OpenEnv spec
-├── Dockerfile                      # Container config
-├── requirements.txt                # Python dependencies
-└── README.md                       # This file
+```bash
+git clone https://github.com/jayhemnani9910/data-clean-env.git data_clean_env && cd data_clean_env   # tests fail if the folder name has dashes
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt pytest
+uvicorn server.app:app --port 8000
+python -m pytest -q
 ```
 
-## Hardware Requirements
+See [CONTRIBUTING.md](CONTRIBUTING.md).
 
-- 2 vCPU, 8 GB RAM
-- Inference runtime < 20 minutes
+## Layout
+
+```
+server/app.py                    FastAPI app via OpenEnv create_app
+server/data_clean_environment.py actions, reset and step
+tasks/task_data.py               dirty tables and graders
+models.py                        DataCleanAction and DataCleanObservation
+client.py                        OpenEnv client
+inference.py                     LLM baseline
+examples/scripted_policy.py      no-key scripted run
+openenv.yaml                     OpenEnv spec
+```
+
+## License
+
+MIT
