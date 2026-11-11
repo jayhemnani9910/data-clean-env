@@ -221,7 +221,8 @@ async def run_task(client: OpenAI, env: DataCleanEnv, task_name: str) -> float:
 
             reward = result.reward or 0.0
             done = result.done
-            error = None
+            last_result = obs.last_action_result
+            error = last_result if last_result and last_result.startswith("Error") else None
 
             rewards.append(reward)
             steps_taken = step
